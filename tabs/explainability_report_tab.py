@@ -67,27 +67,30 @@ def run():
         recommendation = "PEKK crown with delayed loading" if pred > 1.0 or smoking == "Yes" else "LD crown with immediate loading"
         st.success(f"Treatment Recommendation: {recommendation}")
 
-        explainer = shap.Explainer(model.named_steps["rf"])
-        X_trans = model.named_steps["pre"].transform(input_df)
-        shap_vals = explainer(X_trans)
-
-        # SHAP bar plot with fix
-        shap_array = shap_vals.values[0]
-        feature_names = np.array(shap_vals.feature_names)
+        # SHAP safe plotting
         shap_path = None
-        if len(feature_names) == len(shap_array):
-            sorted_pairs = sorted(zip(np.abs(shap_array), feature_names, shap_array), reverse=True)
-            labels = [label for _, label, _ in sorted_pairs]
-            values = [val for _, _, val in sorted_pairs]
-            fig, ax = plt.subplots()
-            ax.barh(labels[::-1], values[::-1], color='salmon')
-            ax.set_title("SHAP Top Contributions")
-            plt.tight_layout()
-            shap_path = "/tmp/shap_fixed.png"
-            plt.savefig(shap_path)
-            plt.close()
+        try:
+            explainer = shap.Explainer(model.named_steps["rf"])
+            X_trans = model.named_steps["pre"].transform(input_df)
+            shap_vals = explainer(X_trans)
+            shap_array = shap_vals.values[0]
+            feature_names = shap_vals.feature_names
+            if hasattr(shap_array, '__len__') and len(feature_names) == len(shap_array):
+                sorted_pairs = sorted(zip(np.abs(shap_array), feature_names, shap_array), reverse=True)
+                labels = [label for _, label, _ in sorted_pairs]
+                values = [val for _, _, val in sorted_pairs]
+                fig, ax = plt.subplots()
+                ax.barh(labels[::-1], values[::-1], color='salmon')
+                ax.set_title("SHAP Top Contributions")
+                plt.tight_layout()
+                shap_path = "/tmp/shap_safe.png"
+                plt.savefig(shap_path)
+                plt.close()
+            else:
+                st.warning("Mismatch in SHAP outputs.")
+        except Exception as e:
+            st.error(f"SHAP Error: {e}")
 
-        # Radar chart
         radar_vals = {
             "Baseline HU": min(baseline_HU / 1600, 1),
             "Smoking Risk": 0.8 if smoking == "Yes" else 0.3,
@@ -104,7 +107,7 @@ def run():
         ax_radar.plot(radar_angles, radar_values, color='blue')
         ax_radar.set_xticks(radar_angles[:-1])
         ax_radar.set_xticklabels(radar_labels)
-        radar_path = "/tmp/radar_final.png"
+        radar_path = "/tmp/radar_safe.png"
         plt.savefig(radar_path)
         plt.close()
 
@@ -139,6 +142,6 @@ def run():
         pdf = PDF()
         pdf.add_page()
         pdf.content()
-        pdf_path = "/mnt/data/Dr_ElFadaly_Explainability_Report_Working.pdf"
+        pdf_path = "/mnt/data/Dr_ElFadaly_Explainability_Report_Safe.pdf"
         pdf.output(pdf_path)
         st.download_button("📥 Download PDF Report", data=open(pdf_path, "rb"), file_name="MBL_Report_ElFadaly.pdf")
