@@ -18,12 +18,14 @@ def run():
         'gender': ['Female', 'Male', 'Female', 'Female'],
         'implant_site': ['Central', 'Lateral', 'Central', 'Central'],
         'baseline_HU': [1179, 695, 826, 954],
-        'delta_HU': [-335, -126, 142, -232]
+        'delta_HU': [-335, -126, 142, -232],
+        'smoking': ['Yes', 'No', 'Yes', 'No'],
+        'loading_time': ['Immediate', 'Delayed', 'Immediate', 'Delayed']
     })
     y_train = [0.6, 0.0, 1.9, 0.75]
 
     preprocessor = ColumnTransformer([
-        ('cat', OneHotEncoder(drop='first'), ['crown_type', 'gender', 'implant_site']),
+        ('cat', OneHotEncoder(drop='first'), ['crown_type', 'gender', 'implant_site', 'smoking', 'loading_time']),
         ('num', StandardScaler(), ['baseline_HU', 'delta_HU'])
     ])
 
@@ -36,7 +38,9 @@ def run():
     st.sidebar.header("Enter Patient Features:")
     crown_type = st.sidebar.selectbox("Crown Type", ['PEKK', 'LD'])
     gender = st.sidebar.selectbox("Gender", ['Male', 'Female'])
+    smoking = st.sidebar.selectbox("Smoking", ['Yes', 'No'])
     implant_site = st.sidebar.selectbox("Implant Site", ['Central', 'Lateral'])
+    loading_time = st.sidebar.selectbox("Loading Time", ['Immediate', 'Delayed'])
     baseline_HU = st.sidebar.slider("Baseline HU", 400, 1600, 800)
     delta_HU = st.sidebar.slider("Change in HU", -500, 500, 0)
 
@@ -45,7 +49,9 @@ def run():
         'gender': gender,
         'implant_site': implant_site,
         'baseline_HU': baseline_HU,
-        'delta_HU': delta_HU
+        'delta_HU': delta_HU,
+        'smoking': smoking,
+        'loading_time': loading_time
     }])
 
     prediction = model.predict(user_input)[0]
@@ -58,7 +64,10 @@ def run():
 
     # Treatment recommendation logic
     st.subheader("🦷 Treatment Recommendation")
-    recommendation = "PEKK crown with delayed loading" if prediction > 1.0 else "LD crown with early loading"
+    if prediction > 1.0 or smoking == "Yes":
+        recommendation = "PEKK crown with delayed loading"
+    else:
+        recommendation = "LD crown with immediate loading"
     st.success(f"Recommended: {recommendation}")
 
     # SHAP explainability
@@ -74,9 +83,9 @@ def run():
     risk_factors = {
         "Baseline HU": min(baseline_HU / 1600, 1),
         "Δ HU": min(abs(delta_HU) / 500, 1),
+        "Smoking Risk": 0.8 if smoking == "Yes" else 0.3,
         "Crown Risk": 1 if crown_type == "PEKK" else 0.5,
-        "Gender Risk": 0.3 if gender == "Female" else 0.7,
-        "Site Risk": 0.6 if implant_site == "Lateral" else 0.4
+        "Loading Risk": 0.6 if loading_time == "Immediate" else 0.3
     }
     fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
     labels = list(risk_factors.keys())
