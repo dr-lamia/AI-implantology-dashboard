@@ -12,7 +12,7 @@ from sklearn.compose import ColumnTransformer
 import os
 
 def run():
-    st.title("📄 Explainability Report Generator")
+    st.title("📄 Explainability Report Generator (Synthetic-trained Model)")
 
     with st.form("form"):
         age = st.slider("Age", 18, 90, 45)
@@ -21,60 +21,53 @@ def run():
         baseline_HU = st.slider("Baseline HU", 400, 1600, 950)
         implant_site = st.selectbox("Implant Site", ["Central", "Lateral"])
         crown_type = st.selectbox("Crown Type", ["PEKK", "LD"])
-        loading_time = st.selectbox("Loading Time", ["Immediate", "Delayed"])
+        loading_time = st.selectbox("Loading Time", ["Immediate", "Early", "Conventional"])
         submitted = st.form_submit_button("Generate Report")
 
     if submitted:
         input_df = pd.DataFrame([{
-            "age": age,
-            "gender": gender,
-            "smoking": smoking,
-            "baseline_HU": baseline_HU,
-            "implant_site": implant_site,
-            "crown_type": crown_type,
-            "loading_time": loading_time,
-            "delta_HU": 0
+            "HU_baseline": baseline_HU,
+            "Crown": crown_type,
+            "Gender": gender,
+            "Implant Site": implant_site,
+            "Age": age,
+            "Smoking": smoking,
+            "Loading_Time": loading_time
         }])
 
-        train_df = pd.DataFrame({
-            "age": [45, 55, 35, 60],
-            "gender": ["Male", "Female", "Female", "Male"],
-            "smoking": ["Yes", "No", "Yes", "No"],
-            "baseline_HU": [1000, 800, 1200, 950],
-            "implant_site": ["Central", "Lateral", "Central", "Central"],
-            "crown_type": ["PEKK", "LD", "LD", "PEKK"],
-            "loading_time": ["Immediate", "Delayed", "Immediate", "Delayed"],
-            "delta_HU": [50, -100, 75, -80]
-        })
-        y = [1.2, 0.4, 0.8, 1.0]
+        data = pd.read_csv("synthetic_mbl_dataset_with_clinical_factors.csv")
+        features = ["HU_baseline", "Crown", "Gender", "Implant Site", "Age", "Smoking", "Loading_Time"]
+        target = "MBL"
 
-        pre = ColumnTransformer([
-            ("cat", OneHotEncoder(drop="first"), ["gender", "smoking", "implant_site", "crown_type", "loading_time"]),
-            ("num", StandardScaler(), ["age", "baseline_HU", "delta_HU"])
+        X = data[features]
+        y = data[target]
+
+        preprocessor = ColumnTransformer([
+            ("cat", OneHotEncoder(drop="first"), ["Crown", "Gender", "Implant Site", "Smoking", "Loading_Time"]),
+            ("num", StandardScaler(), ["HU_baseline", "Age"])
         ])
 
         model = Pipeline([
-            ("pre", pre),
+            ("pre", preprocessor),
             ("rf", RandomForestRegressor(n_estimators=100, random_state=42))
         ])
-        model.fit(train_df, y)
-        pred = model.predict(input_df)[0]
-        st.metric("Predicted MBL", f"{pred:.2f} mm")
+        model.fit(X, y)
+        prediction = model.predict(input_df)[0]
+        st.metric("Predicted MBL", f"{prediction:.2f} mm")
 
-        progression = pred + np.array([0.05 * i for i in [3, 6, 12]])
+        progression = prediction + np.array([0.05 * i for i in [3, 6, 12]])
         st.line_chart(pd.DataFrame({"MBL": progression}, index=["3 mo", "6 mo", "12 mo"]))
 
-        recommendation = "PEKK crown with delayed loading" if pred > 1.0 or smoking == "Yes" else "LD crown with immediate loading"
+        recommendation = "PEKK crown with delayed loading" if prediction > 1.0 or smoking == "Yes" else "LD crown with immediate loading"
         st.success(f"Treatment Recommendation: {recommendation}")
 
-        # SHAP safe plotting
-        shap_path = None
+        shap_path, radar_path = None, None
         try:
             explainer = shap.Explainer(model.named_steps["rf"])
             X_trans = model.named_steps["pre"].transform(input_df)
             shap_vals = explainer(X_trans)
             shap_array = shap_vals.values[0]
-            feature_names = shap_vals.feature_names
+            feature_names = shap_vals.feature_names or model.named_steps["pre"].get_feature_names_out()
             if hasattr(shap_array, '__len__') and len(feature_names) == len(shap_array):
                 sorted_pairs = sorted(zip(np.abs(shap_array), feature_names, shap_array), reverse=True)
                 labels = [label for _, label, _ in sorted_pairs]
@@ -83,11 +76,9 @@ def run():
                 ax.barh(labels[::-1], values[::-1], color='salmon')
                 ax.set_title("SHAP Top Contributions")
                 plt.tight_layout()
-                shap_path = "/tmp/shap_safe.png"
+                shap_path = "shap_output.png"
                 plt.savefig(shap_path)
                 plt.close()
-            else:
-                st.warning("Mismatch in SHAP outputs.")
         except Exception as e:
             st.error(f"SHAP Error: {e}")
 
@@ -107,7 +98,7 @@ def run():
         ax_radar.plot(radar_angles, radar_values, color='blue')
         ax_radar.set_xticks(radar_angles[:-1])
         ax_radar.set_xticklabels(radar_labels)
-        radar_path = "/tmp/radar_safe.png"
+        radar_path = "radar_output.png"
         plt.savefig(radar_path)
         plt.close()
 
@@ -125,7 +116,7 @@ def run():
                 self.cell(0, 10, f"Page {self.page_no()}", align="C")
             def content(self):
                 self.set_font("Arial", "", 12)
-                self.cell(0, 10, f"Predicted MBL: {pred:.2f} mm", ln=True)
+                self.cell(0, 10, f"Predicted MBL: {prediction:.2f} mm", ln=True)
                 self.cell(0, 10, f"Recommendation: {recommendation}", ln=True)
                 for m, v in zip(["3 mo", "6 mo", "12 mo"], progression):
                     self.cell(0, 10, f"{m}: {v:.2f} mm", ln=True)
@@ -133,7 +124,7 @@ def run():
                 if shap_path:
                     self.cell(0, 10, "Top SHAP Features:", ln=True)
                     self.image(shap_path, w=120)
-                    self.multi_cell(0, 10, "These features most influenced the prediction. Longer bars indicate greater contribution.")
+                    self.multi_cell(0, 10, "These features most influenced the prediction. Longer bars = greater contribution.")
                 self.ln(3)
                 self.cell(0, 10, "Risk Factor Radar:", ln=True)
                 self.image(radar_path, w=120)
@@ -142,6 +133,7 @@ def run():
         pdf = PDF()
         pdf.add_page()
         pdf.content()
-        pdf_path = "/mnt/data/Dr_ElFadaly_Explainability_Report_Safe.pdf"
+        pdf_path = "Dr_ElFadaly_Explainability_Synthetic_Model.pdf"
         pdf.output(pdf_path)
-        st.download_button("📥 Download PDF Report", data=open(pdf_path, "rb"), file_name="MBL_Report_ElFadaly.pdf")
+        with open(pdf_path, "rb") as f:
+            st.download_button("📥 Download PDF Report", data=f, file_name="MBL_Report_Synthetic_Model.pdf")
